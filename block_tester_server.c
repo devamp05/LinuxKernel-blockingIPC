@@ -8,7 +8,9 @@
  * 11316715
  * *************/
 
+#include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <linux/kernel.h>
 #include <unistd.h>
@@ -23,18 +25,26 @@ int fib(int N)
     return fib(N - 1) + fib(N - 2);
 }
 
+const int SleepTime = 10;
+
 int main(int argc, char* argv[])
 {
     pid_t from = 0;
     int request;
     int request_size = sizeof(int);
     int reply;
-    const uint Receive = 452, Reply = 453;
+    const uint Receive = 442, Reply = 443, MsgWaits = 444;
 
     printf("Here's your pid, stupid: %d\n", getpid());
+
+	while(syscall(MsgWaits) == 0){printf("no msg yet, check in 2 secs\n");
+	sleep(2);}
+
+	printf("There is msg! start working\n");
+
     while (1)
-    {    
-	printf("from: %x \t request: %d \t request_size: %d \n",
+    {
+        printf("from: %x \t request: %d \t request_size: %d \n",
                from,
                request,
                request_size);
@@ -57,6 +67,6 @@ int main(int argc, char* argv[])
         {
             printf("Error with receive request at server.\n");
         }
-
+        sleep(rand() % SleepTime);
     }
 }

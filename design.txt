@@ -8,113 +8,9 @@
  * 11316715
  * *************/
 
-RttSend:
-	checks if local or remote receiver
-	if local:
-		gets TCB for to called toPtr
-
-		(In the TCB struct they have an ITCInfo struct that contains
-		pointer to buffer of sent message and its length, pointer to buffer of
-		received message and its length and a list of tcbs of threads waiting
-		for me.)
-
-		Then it sets received buffer in current threads tcb's itcInfo to rdata
-
-		if receiver is waiting:
-			memmoves sdata in receivers receive buffer in its itcinfo struct
-			in TCB
-
-			dequeues receiver from blocked on receive queue and enqueues it to
-			ready queue
-
-		else:
-			appends sender to receivers waiting queue in its itcInfo struct in
-			its TCB
-
-			sets current threads send message and its len in its itcInfo in
-			its TCB
-
-			sets receiver as current threads peer
-
-			sets current threads state as blocked on send in its thread
-			management info
-
-	else:
-		sets up send message, len, received message and calls
-		executeRemoteRequest which I think does a tcp or udp send
-
-
-RttReceive: (*data, *len)
-	
-	sender = first from the waiting list on current thread (from its list in
-	ITCInfo stuct in its TCB)
-
-	makes sure either both data and len are null or both are not null
-
-	points current threads receive message buffer in its ITCInfo struct to
-	data
-
-	if there is a waiting sender:
-		if len is not null:
-			set slen to min of len, senders len from its itcinfo struct
-		else
-			set slen to 0
-
-		memmove from senders send buffer to receivers receive buffer of size
-		slen
-
-		set received len to slen
-
-		set peer for receiver to sender
-
-		sender is swapped from send blocked queue to wait for reply queue
-		(not sure if needed)
-
-	else: (no message is waiting to be received)
-		set receive len of receiver to len if len not null
-		block in receiving block queue
-
-		set a flag to 1 
-	
-	give up OS if flag is 1
-
-	so when it comes here we are sure that a message is ready to be received
-
-	set sender with get peer on current thread
-
-	set len to received len from ITCInfo struct
-
-	leave OS and return OK
-
-
-RttReply: (sendrId, *data, len)
-	sendPtr = senders TCB (depending on local or remote has different calls to
-	set both)
-
-	if sender is blocked on waiting for reply queue:
-		if senders receive message is set:
-			memmove from data to senders receive message buffer of size len
-
-		set received length to len
-
-		set senders state to ready
-
-		set peer to null
-
-		dequeue from waiting for reply queue to ready queue
-
-		result = RTTOK
-	
-	else: (if sender is not blocked on waiting for reply)
-		result = RTTNOTBLOCKED
-
-	give up OS
-
-	return result
-
-RttMsgWaits:
-	checks if current threads waiting list has any members
-
+Note: - Get arm source files from armsource branch
+	  - We have to Makefiles one named Makefile goes into ipc directory in
+		kernel source and Makefile-test is for testing
 
 Linux kernel implementation:
 	
@@ -454,3 +350,18 @@ ipc/Makefile:
 
 arch/arm/tools/syscall.tbl:
 	add 4 syscall entries for arm table
+
+********************HowToTest************************
+Get linux kernel source v5.10.168-ti-r71
+
+follow where to put files above and put source files in right directory.
+
+Makefile for tests is called Makefile-test
+
+`bs` is the server. No inputs and no output
+`bc` is the client. 
+	- server id, <list of nums for fib calc>
+
+start one instance of bs, and then one instance of bc. bc will spawn 5
+children and do stuff.
+

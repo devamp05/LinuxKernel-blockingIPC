@@ -15,7 +15,7 @@
 #include <signal.h>
 #include <stdlib.h>
 
-const int MaxSleep = 15;
+const int MaxSleep = 5;
 pid_t to;
 int NumArgs;
 char** Args;
@@ -28,14 +28,14 @@ void ChildProc()
     unsigned int reply_size;
     int reply;
     int x           = 2;
-    const uint Send = 451;
+    const uint Send = 441;
     int sleepTime;
     srand(getpid());
     printf("childproc called\n");
     /* skip the first 2 parameters (process name and target pid) */
-    for(int i = 0; i < 5; i++)
-   {
-    	printf("running\n");
+    for (int i = 0; i < 5; i++)
+    {
+        printf("running\n");
 
         for (; x < NumArgs; x++)
         {
@@ -64,11 +64,11 @@ void ChildProc()
                 printf("There was a problem.\n");
                 perror("pSend");
             }
-	    sleepTime = (rand()% MaxSleep) + 5;
-	  printf("sleep: %d\n",sleepTime); 
-	    sleep(sleepTime);
+            sleepTime = (rand() % MaxSleep);
+            printf("sleep: %d\n", sleepTime);
+            sleep(sleepTime);
         }
-	x = 2;
+        x = 2;
     }
 }
 
@@ -95,7 +95,7 @@ int main(int argc, char* argv[])
         printf("make sure your pid is a valid number\n");
     }
     NumArgs = argc;
-    Args = argv;
+    Args    = argv;
 
     signal(SIGINT, TerminateLoop);
     for (i = 0; i < 5; i++)
@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
             printf("spawn %d\n", i);
 
             ChildProc();
-	    exit(0);
+            exit(0);
         }
         else if (child < 0)
         {

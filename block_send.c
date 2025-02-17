@@ -68,13 +68,11 @@ SYSCALL_DEFINE5(pSend,
 
     unsigned long flags;
 
-    printk(KERN_INFO "Hello sender\n");
     if (!toPtr)
     {
         printk(KERN_ERR "send: target doesnt exist\n");
         return -EFAULT;
     }
-    printk(KERN_INFO "found to\n");
 
     if (copy_from_user(&krlen, rlen, sizeof(unsigned int)))
     {
@@ -107,7 +105,6 @@ SYSCALL_DEFINE5(pSend,
         return -EFAULT;
     }
 
-    printk(KERN_INFO "send message set\n");
 
     self->minfo.sendlen = slen;
 
@@ -130,12 +127,8 @@ SYSCALL_DEFINE5(pSend,
 
     wake_up_process(toPtr);
 
-    printk(KERN_INFO "sleeping\n");
-
     set_current_state(TASK_INTERRUPTIBLE);
     schedule();
-
-    printk(KERN_INFO "sender woke up\n");
 
     /* if we ctrl-c before response we exit */
     if (self->minfo.receivemsg)
@@ -202,14 +195,11 @@ SYSCALL_DEFINE3(pReceive,
     {
         spin_unlock_irqrestore(&self->minfo.mutex, flags);
 
-        printk(KERN_INFO "receiver going to block\n");
         pr_err("receive: fifo is empty\n");
 
         set_current_state(TASK_INTERRUPTIBLE);
 
         schedule();
-
-        printk(KERN_INFO "receive: receiver got a message\n");
 
         spin_lock_irqsave(&self->minfo.mutex, flags);
     }
@@ -224,7 +214,7 @@ SYSCALL_DEFINE3(pReceive,
 
     spin_unlock_irqrestore(&self->minfo.mutex, flags);
 
-    pr_info("Sender pid : %d\n", senderPid);
+    pr_info("received sender pid : %d\n", senderPid);
 
     sender = find_task_by_vpid(senderPid);
     if (!sender)
@@ -233,7 +223,8 @@ SYSCALL_DEFINE3(pReceive,
         return -EFAULT;
     }
 
-
+    spin_lock_irqsave(&sender->minfo.destroy_mutex, flags);
+	
     if (copy_from_user(&klen, len, sizeof(unsigned int)))
     {
         printk(KERN_ERR "receive: getting len from use failed\n");
@@ -242,7 +233,6 @@ SYSCALL_DEFINE3(pReceive,
         return -EFAULT;
     }
 
-    spin_lock_irqsave(&sender->minfo.destroy_mutex, flags);
 
     if (klen > sender->minfo.sendlen)
     {
@@ -289,7 +279,7 @@ SYSCALL_DEFINE3(
 
     if (!sender)
     {
-        pr_info("reply: sender already exited\n");
+        pr_err("reply: sender already exited\n");
         return -EFAULT;
     }
 
@@ -328,8 +318,6 @@ SYSCALL_DEFINE3(
         sender->minfo.receivelen = len;
     }
 
-    printk(KERN_INFO "reply: waking up the sender\n");
-
     wake_up_process(sender);
 
     spin_unlock_irqrestore(&sender->minfo.destroy_mutex, flags);
@@ -341,14 +329,14 @@ SYSCALL_DEFINE3(
 SYSCALL_DEFINE0(pMsgWaits)
 {
     unsigned long flags;
-    int result               = 0;
+    int amount               = 0;
     struct task_struct* self = current;
 
     spin_lock_irqsave(&self->minfo.mutex, flags);
 
-    result = self->minfo.size;
+    amount = self->minfo.size;
 
     spin_unlock_irqrestore(&self->minfo.mutex, flags);
 
-    return result == 0;
+    return amount;
 }

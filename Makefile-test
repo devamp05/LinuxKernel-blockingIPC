@@ -1,0 +1,23 @@
+#/***************
+# * Tianze Kuang
+# * wde364
+# * 11352826
+# *
+# * Devam Punitbhai Patel
+# * dns682
+# * 11316715
+# * *************/
+
+CC_ARM = arm-linux-gnueabihf-gcc
+
+all: bs bc
+
+
+bs:
+	${CC} block_tester_server.c -o bs
+
+bc :
+	${CC} block_tester_client.c -o bc
+
+clean:
+	rm -f bs bc

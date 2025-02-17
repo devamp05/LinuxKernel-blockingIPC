@@ -1359,7 +1359,6 @@ struct task_struct {
 	struct callback_head		mce_kill_me;
 	int				mce_count;
 #endif
-
 	/* CMPT 432/832 CHANGE BY dns682, wde364, 2025, 02, 02*/
 	struct messageInfo		minfo;
 	/* end CMPT 432/832 CHANGE BY dns682, wde364, 2025, 02, 02*/
