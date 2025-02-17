@@ -1,0 +1,456 @@
+/***************
+ * Tianze Kuang
+ * wde364
+ * 11352826
+ *
+ * Devam Punitbhai Patel
+ * dns682
+ * 11316715
+ * *************/
+
+RttSend:
+	checks if local or remote receiver
+	if local:
+		gets TCB for to called toPtr
+
+		(In the TCB struct they have an ITCInfo struct that contains
+		pointer to buffer of sent message and its length, pointer to buffer of
+		received message and its length and a list of tcbs of threads waiting
+		for me.)
+
+		Then it sets received buffer in current threads tcb's itcInfo to rdata
+
+		if receiver is waiting:
+			memmoves sdata in receivers receive buffer in its itcinfo struct
+			in TCB
+
+			dequeues receiver from blocked on receive queue and enqueues it to
+			ready queue
+
+		else:
+			appends sender to receivers waiting queue in its itcInfo struct in
+			its TCB
+
+			sets current threads send message and its len in its itcInfo in
+			its TCB
+
+			sets receiver as current threads peer
+
+			sets current threads state as blocked on send in its thread
+			management info
+
+	else:
+		sets up send message, len, received message and calls
+		executeRemoteRequest which I think does a tcp or udp send
+
+
+RttReceive: (*data, *len)
+	
+	sender = first from the waiting list on current thread (from its list in
+	ITCInfo stuct in its TCB)
+
+	makes sure either both data and len are null or both are not null
+
+	points current threads receive message buffer in its ITCInfo struct to
+	data
+
+	if there is a waiting sender:
+		if len is not null:
+			set slen to min of len, senders len from its itcinfo struct
+		else
+			set slen to 0
+
+		memmove from senders send buffer to receivers receive buffer of size
+		slen
+
+		set received len to slen
+
+		set peer for receiver to sender
+
+		sender is swapped from send blocked queue to wait for reply queue
+		(not sure if needed)
+
+	else: (no message is waiting to be received)
+		set receive len of receiver to len if len not null
+		block in receiving block queue
+
+		set a flag to 1 
+	
+	give up OS if flag is 1
+
+	so when it comes here we are sure that a message is ready to be received
+
+	set sender with get peer on current thread
+
+	set len to received len from ITCInfo struct
+
+	leave OS and return OK
+
+
+RttReply: (sendrId, *data, len)
+	sendPtr = senders TCB (depending on local or remote has different calls to
+	set both)
+
+	if sender is blocked on waiting for reply queue:
+		if senders receive message is set:
+			memmove from data to senders receive message buffer of size len
+
+		set received length to len
+
+		set senders state to ready
+
+		set peer to null
+
+		dequeue from waiting for reply queue to ready queue
+
+		result = RTTOK
+	
+	else: (if sender is not blocked on waiting for reply)
+		result = RTTNOTBLOCKED
+
+	give up OS
+
+	return result
+
+RttMsgWaits:
+	checks if current threads waiting list has any members
+
+
+Linux kernel implementation:
+	
+	add a struct like below in block_send.h header file and add struct to 
+	task_struct
+	struct messageInfo
+	{
+		/*to form a queue*/
+    	pid_t* buf;
+    	unsigned int front;	/*initialize to 0*/
+    	unsigned int back; initialize to 0
+    	unsigned int size; initialize to 0
+
+    	spinlock_t mutex;
+    	/* destructor wait on this mutex */
+    	spinlock_t destroy_mutex;
+
+    	/*parameters for data transfer*/
+    	void* sendmsg;
+    	unsigned int sendlen;
+    	void* receivemsg;
+    	unsigned int receivelen;
+	};
+
+helper functions for manually handling pid_t queue:
+	getFromSendersQueue
+	insertToSendersQueue
+pSend(PID to, void *sData, unsigned int slen, void *rData, unsigned int *rlen)
+{
+    unsigned int krlen;
+    struct task_struct* self  = current;
+    struct task_struct* toPtr = find_task_by_vpid(to);
+
+    unsigned long flags;
+
+    if (!toPtr)
+    {
+		print error message
+		return error
+    }
+
+    if (copy_from_user(&krlen, rlen, sizeof(unsigned int)))
+    {
+		print error message
+		return error
+    }
+
+    if ((slen > 0 && !sData) || (krlen > 0 && !rData))
+    {
+		print error message
+		return error
+    }
+
+    /*now first put data from user space to current's messageInfo*/
+    selfs sendmsg = kmalloc(slen, GFP_KERNEL);
+    if (!self->minfo.sendmsg)
+    {
+		print error message
+		return error
+    }
+
+    if (copy_from_user(self->minfo.sendmsg, sData, slen))
+    {
+		print error message
+        kfree(selfs sendmsg);
+		return error
+    }
+
+    selfs sendlen = slen;
+
+    selfs receivelen = krlen;
+
+
+    /*turn off interrupts */
+    spin_lock_irqsave(&toPtr->minfo.mutex, flags);
+
+    if (insertToSendersQueue(self->pid, &toPtr->minfo) != 0)
+    {
+		print error message
+		release lock restore irq
+		return error
+    }
+
+    spin_unlock_irqrestore(&toPtr->minfo.mutex, flags);
+
+    wake_up_process(toPtr);
+
+    set_current_state(TASK_INTERRUPTIBLE);
+    schedule();
+
+    /* if we ctrl-c before response we exit */
+    if (self->minfo.receivemsg)
+    {
+        /*once woken up copy the reply message back to user space*/
+        if (copy_to_user(rData, self->minfo.receivemsg, self->minfo.receivelen))
+        {
+			print error message
+        	kfree(selfs receivemessage);
+			return error	
+        }
+
+        kfree(selfs receivemsg);
+
+        if (copy_to_user(rlen, &self->minfo.receivelen, sizeof(unsigned int)))
+        {
+			print error message
+			return error	
+        }
+    }
+    else
+    {
+        rlen = 0;
+    }
+    return 0;
+}
+
+
+pReceive(PID *from, void *Data, unsigned int *len)
+{
+    struct task_struct* sender;
+    struct task_struct* self = current;
+    pid_t senderPid;
+    unsigned long flags;
+
+    unsigned int klen;
+
+    if (!from)
+    {
+		print err message
+		return error
+    }
+    if (!data || !len)
+    {
+		print err message
+		return error
+    }
+
+	get the mutex for senders queue
+    spin_lock_irqsave(&self->minfo.mutex, flags);
+
+    if (self senders queue size == 0)
+    {
+		release lock restore irq
+		
+		yield
+
+        get lock
+    }
+
+    senderPid = getFromSendersQueue(&self->minfo);
+    if (senderPid == 0)
+    {
+		print err message
+		release lock restore irq
+		return error
+    }
+
+    spin_unlock_irqrestore(&self->minfo.mutex, flags);
+
+    sender = find_task_by_vpid(senderPid);
+    if (!sender)
+    {
+		print err message
+		release lock restore irq
+		return error
+    }
+
+
+    if (copy_from_user(&klen, len, sizeof(unsigned int))) fails
+    {
+        kfree(senders sendmsg);
+        sender sendmsg = 0;
+        return -EFAULT;
+    }
+
+	get senders destroy mutex to prevent from errors when Ctrl C on sender
+    spin_lock_irqsave(&sender->minfo.destroy_mutex, flags);
+
+    if (klen > senders sendlen)
+    {
+        klen = senders sendlen;
+    }
+
+    if (copy_to_user(data, sender->minfo.sendmsg, klen))
+    {
+        kfree(senders sendmsg);
+        senders sendmsg = 0;
+        spin_unlock_irqstore(&sender->minfo.destroy_mutex, flags);
+        return -EFAULT;
+    }
+
+    kfree(senders sendmsg);
+    senders sendmsg = 0;
+
+    if (copy_to_user(from, &sender->pid, sizeof(pid_t)))
+    {
+        spin_unlock_irqrestore(&self->minfo.mutex, flags);
+        return -EFAULT;
+    }
+
+    spin_unlock_irqrestore(&sender->minfo.destroy_mutex, flags);
+
+    if (copy_to_user(len, &klen, sizeof(unsigned int)))
+    {
+        return -EFAULT;
+    }
+
+    return 0;
+}
+
+pReply(PID senderId, void *data, unsigned int len)
+{
+    struct task_struct* sender = find_task_by_vpid(senderId);
+    unsigned long flags;
+
+    if (!sender)
+    {
+		print err message
+		return error
+    }
+
+    spin_lock_irqsave(&sender->minfo.destroy_mutex, flags);
+    if (len > 0 && !data)
+    {
+		print err message
+		release lock restore irq
+		return error
+    }
+
+    if (len > 0)
+    {
+        if (len > senders receivelen)
+        {
+            len = senders receivelen;
+        }
+
+        senders receivemsg = kmalloc(len, GFP_KERNEL);
+        if (!senders receivemsg)
+        {
+			print err message
+			release lock restore irq
+			return error
+        }
+
+        if (copy_from_user(sender->minfo.receivemsg, data, len))
+        {
+			release lock restore irq
+			return error
+        }
+
+        senders receivelen = len;
+    }
+
+    wake_up_process(sender);
+
+    spin_unlock_irqrestore(&sender->minfo.destroy_mutex, flags);
+
+    return 0;
+}
+
+/* 1 if have message */
+SYSCALL_DEFINE0(pMsgWaits)
+{
+    unsigned long flags;
+    int result               = 0;
+    struct task_struct* self = current;
+
+    spin_lock_irqsave(&self senderqueue mutex, flags);
+
+    result = selfs sender queues size;
+
+    spin_unlock_irqrestore(&self senderqueue mutex, flags);
+
+    return result == 0;
+}
+
+Details for adding System call to linux kernel for ARM
+
+- add new entries to file include/uapi/asm-generic/unistd.h
+
+- add new entry to syscall table for architecture (eg. to
+  arch/arm/tools/syscall.tbl fro arm)
+ 
+- define prototype in include/linux/syscalls.h
+
+- add implementation in block_send.c file in ipc directory
+
+- change ipc Makefile to compile block_send.c by adding block_send.o to its
+  rule.
+
+where to put files:
+
+block_send.c: ./ipc/
+
+block_send.h: ./include/linux/
+
+sched.h: ./include/linux/
+
+syscalls.h: ./include/linux/
+
+unistd.h: ./include/uapi/asm-generic/unistd.h
+
+fork.c: ./kernel/
+
+Makefile: ./ipc/
+
+syscall.tbl: ./arch/arm/tools/syscall.tbl
+
+/*for testing on VM*/
+syscall_64.tbl: ./arch/x86/entry/syscalls/syscall_64.tbl
+
+
+Changes in kernel source files
+
+include/linux/sched.h:
+	add our struct message info to task struct
+
+include/linux/syscalls.h:
+	define our 4 syscalls with required params
+
+include/uapi/asm-generic/unistd.h:
+	define 4 syscalls
+
+kernel/fork.c:
+	in copy_process:
+		allocate buffer for senders pid queue
+		initialize front, back, size to 0
+		and initialize 2 spinlocks
+
+kernel/exit.c:
+	in do_exit:
+		get the destroy spinlock to synchronize Ctrl C with senders management
+		kfree whatever is not freed
+
+ipc/Makefile:
+	add change to compile block_send.c
+
+arch/arm/tools/syscall.tbl:
+	add 4 syscall entries for arm table
